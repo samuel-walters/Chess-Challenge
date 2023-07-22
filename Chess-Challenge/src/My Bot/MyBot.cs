@@ -7,27 +7,85 @@ public class MyBot : IChessBot
     // PieceType (enum) None = 0, Pawn = 1, Knight = 2, Bishop = 3, Rook = 4, Queen = 5, King = 6
     double[] pieceValues = { 0, 1, 3, 3.3, 5, 9, 1000 };
 
+    // Transposition table
+    private Dictionary<ulong, TranspositionTableEntry> transpositionTable;
+
+    public MyBot()
+    {
+        // Initialize the transposition table
+        transpositionTable = new Dictionary<ulong, TranspositionTableEntry>();
+    }
+
     public Move Think(Board board, Timer timer)
     {
         Move bestMove = default;
         double bestValue = double.MinValue;
-        foreach (var move in board.GetLegalMoves())
+        transpositionTable.Clear();
+
+        int maxDepth = 3;  // Initial depth.
+                           // plyCount is the number of single moves played by either white or black so far.
+                           // So this would be move 26 where we increase the depth
+        if (board.PlyCount >= 52) maxDepth = 4;
+        // move 34
+        else if (board.PlyCount >= 70) maxDepth = 5;
+        // move 50
+        else if (board.PlyCount >= 100) maxDepth = 6;
+        // move 70
+        else if (board.PlyCount >= 140) maxDepth = 7;
+
+        int startTime = timer.MillisecondsElapsedThisTurn;
+        int timeLimit = 3000;  // Set a time limit of 3 seconds.
+
+        for (int depth = 1; depth <= maxDepth; depth++)
         {
-            board.MakeMove(move);
-            double moveValue = -Negamax(board, -10000, 10000, 3);
-            board.UndoMove(move);
-            if (moveValue > bestValue)
+            foreach (var move in board.GetLegalMoves())
             {
-                bestValue = moveValue;
-                bestMove = move;
+                // Check time limit inside the loop
+                if (timer.MillisecondsElapsedThisTurn - startTime >= timeLimit)
+                {
+                    return bestMove;
+                }
+
+                board.MakeMove(move);
+                double moveValue = -Negamax(board, -10000, 10000, depth);
+                board.UndoMove(move);
+                if (moveValue > bestValue)
+                {
+                    bestValue = moveValue;
+                    bestMove = move;
+                }
             }
         }
         return bestMove;
     }
 
+
     double Negamax(Board board, double alpha, double beta, int depth)
     {
-        if (depth == 0)
+        ulong zobristKey = board.ZobristKey;
+
+        // Check if this position is in the transposition table
+        if (transpositionTable.TryGetValue(zobristKey, out var entry) && entry.Depth >= depth)
+        {
+            if (entry.Flag == TranspositionTableEntry.FlagType.Exact)
+            {
+                return entry.Value;
+            }
+            else if (entry.Flag == TranspositionTableEntry.FlagType.Lowerbound)
+            {
+                alpha = Math.Max(alpha, entry.Value);
+            }
+            else if (entry.Flag == TranspositionTableEntry.FlagType.Upperbound)
+            {
+                beta = Math.Min(beta, entry.Value);
+            }
+            if (alpha >= beta)
+            {
+                return entry.Value;
+            }
+        }
+
+        if (depth == 0 || board.IsInCheckmate() || board.IsDraw())
         {
             return Evaluate(board);
         }
@@ -43,11 +101,23 @@ public class MyBot : IChessBot
             if (alpha >= beta)
                 break;
         }
+
+        // Store the position and its evaluation in the transposition table
+        var newEntry = new TranspositionTableEntry
+        {
+            Value = max,
+            Depth = depth,
+            Flag = alpha >= beta
+                ? TranspositionTableEntry.FlagType.Lowerbound
+                : TranspositionTableEntry.FlagType.Upperbound
+        };
+        transpositionTable[zobristKey] = newEntry;
+
         return max;
     }
 
     double Evaluate(Board board)
-        {
+            {
             // Define the central squares
             var centerSquares = new List<Square> {
         new Square("d4"),
@@ -164,6 +234,19 @@ public class MyBot : IChessBot
             if (board.HasQueensideCastleRight(false)) score -= 0.5;
         }
         return board.IsWhiteToMove ? score : -score;
+    }
+    public class TranspositionTableEntry
+    {
+        public enum FlagType
+        {
+            Exact,      // The value is exactly the evaluation of the position
+            Lowerbound, // The value is a lower bound on the evaluation
+            Upperbound  // The value is an upper bound on the evaluation
+        }
+
+        public double Value { get; set; } // The evaluation of the position
+        public int Depth { get; set; } // The depth at which the position was evaluated
+        public FlagType Flag { get; set; } // The type of value stored
     }
 
 }
