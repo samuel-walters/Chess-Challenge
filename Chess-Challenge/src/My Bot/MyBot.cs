@@ -10,10 +10,26 @@ public class MyBot : IChessBot
     // Transposition table
     private Dictionary<ulong, TranspositionTableEntry> transpositionTable;
 
+    private readonly ulong centralSquaresBitboard;
+    private readonly ulong castlingSquaresBitboard;
+
     public MyBot()
     {
         // Initialize the transposition table
         transpositionTable = new Dictionary<ulong, TranspositionTableEntry>();
+
+        centralSquaresBitboard = GetBitboardForSquares(new List<string> { "d4", "e4", "d5", "e5" });
+        castlingSquaresBitboard = GetBitboardForSquares(new List<string> { "g1", "h1", "c1", "b1", "g8", "h8", "c8", "b8" });
+    }
+
+    private ulong GetBitboardForSquares(List<string> squareNames)
+    {
+        ulong bitboard = 0UL;
+        foreach (var squareName in squareNames)
+        {
+            BitboardHelper.SetSquare(ref bitboard, new Square(squareName));
+        }
+        return bitboard;
     }
 
     public Move Think(Board board, Timer timer)
@@ -22,40 +38,36 @@ public class MyBot : IChessBot
         double bestValue = double.MinValue;
         transpositionTable.Clear();
 
-        int maxDepth = 3;  // Initial depth.
-                           // plyCount is the number of single moves played by either white or black so far.
-                           // So this would be move 26 where we increase the depth
-        if (board.PlyCount >= 52) maxDepth = 4;
-        // move 34
-        else if (board.PlyCount >= 70) maxDepth = 5;
-        // move 50
-        else if (board.PlyCount >= 100) maxDepth = 6;
-        // move 70
-        else if (board.PlyCount >= 140) maxDepth = 7;
-
-        int startTime = timer.MillisecondsElapsedThisTurn;
-        int timeLimit = 3000;  // Set a time limit of 3 seconds.
-
-        for (int depth = 1; depth <= maxDepth; depth++)
+        // Set initial depth based on the number of moves played.
+        int depth;
+        int plyCount = board.PlyCount;
+        if (plyCount < 6) // Opening stage
         {
-            foreach (var move in board.GetLegalMoves())
-            {
-                // Check time limit inside the loop
-                if (timer.MillisecondsElapsedThisTurn - startTime >= timeLimit)
-                {
-                    return bestMove;
-                }
+            depth = 1;
+        }
+        else if (plyCount < 60) // Middlegame
+        {
+            depth = 3;
+        }
+        else
+        {
+            depth = 4;
+        }
 
-                board.MakeMove(move);
-                double moveValue = -Negamax(board, -10000, 10000, depth);
-                board.UndoMove(move);
-                if (moveValue > bestValue)
-                {
-                    bestValue = moveValue;
-                    bestMove = move;
-                }
+
+        var legalMoves = board.GetLegalMoves();
+        foreach (var move in legalMoves)
+        {
+            board.MakeMove(move);
+            double moveValue = -Negamax(board, -10000, 10000, depth);
+            board.UndoMove(move);
+            if (moveValue > bestValue)
+            {
+                bestValue = moveValue;
+                bestMove = move;
             }
         }
+
         return bestMove;
     }
 
@@ -91,7 +103,8 @@ public class MyBot : IChessBot
         }
 
         double max = double.MinValue;
-        foreach (var move in board.GetLegalMoves())
+        var legalMoves = board.GetLegalMoves();
+        foreach (var move in legalMoves)
         {
             board.MakeMove(move);
             double val = -Negamax(board, -beta, -alpha, depth - 1);
@@ -117,76 +130,29 @@ public class MyBot : IChessBot
     }
 
     double Evaluate(Board board)
-            {
-            // Define the central squares
-            var centerSquares = new List<Square> {
-        new Square("d4"),
-        new Square("e4"),
-        new Square("d5"),
-        new Square("e5"),
-        new Square("c3"),
-        new Square("d3"),
-        new Square("e3"),
-        new Square("f3"),
-        new Square("c4"),
-        new Square("f4"),
-        new Square("c5"),
-        new Square("f5"),
-        new Square("c6"),
-        new Square("d6"),
-        new Square("e6"),
-        new Square("f6"),
-        };
-
-            // Define the endgame squares
-            var endgameSquares = new List<Square> {
-        new Square("d4"),
-        new Square("e4"),
-        new Square("d5"),
-        new Square("e5"),
-        };
-
-            // Define the 'castling' squares
-            var castlingSquares = new List<Square> {
-        new Square("g1"),
-        new Square("h1"),
-        new Square("c1"),
-        new Square("b1"),
-        new Square("g8"),
-        new Square("h8"),
-        new Square("c8"),
-        new Square("b8")
-        };
-
-        // Gets an array of all the piece lists
+    {
         var pieceLists = board.GetAllPieceLists();
         double score = 0;
         int totalPieces = 0;
 
-        ulong whiteControl = 0;
-        ulong blackControl = 0;
+        int whiteCentralControl = 0;
+        int blackCentralControl = 0;
 
         for (int i = 0; i < pieceLists.Length; i++)
         {
             var pieceList = pieceLists[i];
             double pieceValue = pieceValues[(int)pieceList.TypeOfPieceInList] * pieceList.Count;
             totalPieces += pieceList.Count;
-
-            // If the piece list contains white pieces, add the piece value to the score
-            // Otherwise, subtract it
             score += pieceList.IsWhitePieceList ? pieceValue : -pieceValue;
 
-            // Check for each piece if it is in the center
             for (int j = 0; j < pieceList.Count; j++)
             {
                 var piece = pieceList.GetPiece(j);
-                if (centerSquares.Contains(piece.Square))
+                if (board.PlyCount < 30 && piece.PieceType == PieceType.Queen)
                 {
-                    // Add or subtract a bonus for the central control
-                    score += pieceList.IsWhitePieceList ? 0.5 : -0.5;
+                    continue;
                 }
 
-                // Calculate control for each piece
                 ulong attacks;
                 switch (piece.PieceType)
                 {
@@ -207,34 +173,36 @@ public class MyBot : IChessBot
                     default:
                         continue;
                 }
+
+                ulong centralAttacks = attacks & centralSquaresBitboard;
                 if (pieceList.IsWhitePieceList)
-                    whiteControl |= attacks;  // Add the attacks to the white control bitboard
+                    whiteCentralControl += BitboardHelper.GetNumberOfSetBits(centralAttacks);
                 else
-                    blackControl |= attacks;  // Add the attacks to the black control bitboard
+                    blackCentralControl += BitboardHelper.GetNumberOfSetBits(centralAttacks);
             }
         }
 
-        // Calculate the score based on the difference in control
-        double controlWeight = 0.1;  // Change this to adjust the impact of control
-        score += controlWeight * (BitboardHelper.GetNumberOfSetBits(whiteControl) - BitboardHelper.GetNumberOfSetBits(blackControl));
+        double controlWeight = 0.1;
+        score += controlWeight * (whiteCentralControl - blackCentralControl);
 
-        // If in endgame, add points for king being in the center.
         if (totalPieces <= 16)
         {
-            if (endgameSquares.Contains(board.GetKingSquare(true))) score += 1;
-            if (endgameSquares.Contains(board.GetKingSquare(false))) score -= 1;
+            if (BitboardHelper.SquareIsSet(centralSquaresBitboard, board.GetKingSquare(true))) score += 1;
+            if (BitboardHelper.SquareIsSet(centralSquaresBitboard, board.GetKingSquare(false))) score -= 1;
         }
-        else // Not in endgame, add points for king being on a castling square. Also points for having the right to castle.
+        else
         {
-            if (castlingSquares.Contains(board.GetKingSquare(true))) score += 2;
-            if (castlingSquares.Contains(board.GetKingSquare(false))) score -= 2;
+            if (BitboardHelper.SquareIsSet(castlingSquaresBitboard, board.GetKingSquare(true))) score += 2;
+            if (BitboardHelper.SquareIsSet(castlingSquaresBitboard, board.GetKingSquare(false))) score -= 2;
             if (board.HasKingsideCastleRight(true)) score += 0.5;
             if (board.HasQueensideCastleRight(true)) score += 0.5;
             if (board.HasKingsideCastleRight(false)) score -= 0.5;
             if (board.HasQueensideCastleRight(false)) score -= 0.5;
         }
+
         return board.IsWhiteToMove ? score : -score;
     }
+
     public class TranspositionTableEntry
     {
         public enum FlagType
@@ -248,5 +216,4 @@ public class MyBot : IChessBot
         public int Depth { get; set; } // The depth at which the position was evaluated
         public FlagType Flag { get; set; } // The type of value stored
     }
-
 }
