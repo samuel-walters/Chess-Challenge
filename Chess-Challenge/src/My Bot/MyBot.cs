@@ -38,7 +38,6 @@ public class MyBot : IChessBot
         double bestValue = double.MinValue;
         transpositionTable.Clear();
 
-        // Set initial depth based on the number of moves played.
         int depth;
         int plyCount = board.PlyCount;
         if (plyCount < 6) // Opening stage
@@ -54,9 +53,21 @@ public class MyBot : IChessBot
             depth = 4;
         }
 
+        // Get capture moves
+        var captureMoves = new List<Move>(board.GetLegalMoves(capturesOnly: true));
 
-        var legalMoves = board.GetLegalMoves();
-        foreach (var move in legalMoves)
+        // Get all moves
+        var allMoves = new List<Move>(board.GetLegalMoves());
+
+        // Remove capture moves from all moves
+        allMoves.RemoveAll(move => captureMoves.Contains(move));
+
+        // Combine capture moves and the remaining moves
+        captureMoves.AddRange(allMoves);
+
+        // Now captureMoves contains all moves, with capture moves at the start
+
+        foreach (var move in captureMoves)
         {
             board.MakeMove(move);
             double moveValue = -Negamax(board, -10000, 10000, depth);
@@ -103,8 +114,22 @@ public class MyBot : IChessBot
         }
 
         double max = double.MinValue;
-        var legalMoves = board.GetLegalMoves();
-        foreach (var move in legalMoves)
+
+        // Get capture moves
+        var captureMoves = new List<Move>(board.GetLegalMoves(capturesOnly: true));
+
+        // Get all moves
+        var allMoves = new List<Move>(board.GetLegalMoves());
+
+        // Remove capture moves from all moves
+        allMoves.RemoveAll(move => captureMoves.Contains(move));
+
+        // Combine capture moves and the remaining moves
+        captureMoves.AddRange(allMoves);
+
+        // Now captureMoves contains all moves, with capture moves at the start
+
+        foreach (var move in captureMoves)
         {
             board.MakeMove(move);
             double val = -Negamax(board, -beta, -alpha, depth - 1);
@@ -128,6 +153,7 @@ public class MyBot : IChessBot
 
         return max;
     }
+
 
     double Evaluate(Board board)
     {
