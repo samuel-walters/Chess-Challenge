@@ -42,15 +42,19 @@ public class MyBot : IChessBot
         int plyCount = board.PlyCount;
         if (plyCount < 6) // Opening stage
         {
-            depth = 1;
+            depth = 2;
         }
         else if (plyCount < 60) // Middlegame
         {
             depth = 3;
         }
-        else
+        else if (plyCount < 90) // endgame?
         {
             depth = 4;
+        }
+        else
+        {
+            depth = 5;
         }
 
         // Get capture moves
@@ -157,6 +161,16 @@ public class MyBot : IChessBot
 
     double Evaluate(Board board)
     {
+        if (board.IsInCheckmate())
+        {
+            return board.IsWhiteToMove ? -10000 : 10000;
+        }
+
+        if (board.IsDraw())
+        {
+            return 0;
+        }
+
         var pieceLists = board.GetAllPieceLists();
         double score = 0;
         int totalPieces = 0;
