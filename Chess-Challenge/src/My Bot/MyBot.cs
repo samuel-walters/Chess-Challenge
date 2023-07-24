@@ -40,15 +40,25 @@ public class MyBot : IChessBot
 
         int depth;
         int plyCount = board.PlyCount;
+        int totalPieces = BitboardHelper.GetNumberOfSetBits(board.AllPiecesBitboard); // count the total number of pieces
+
         if (plyCount < 6) // Opening stage
         {
             depth = 2;
         }
         else if (plyCount < 60) // Middlegame
         {
-            depth = 3;
+            depth = 4;
         }
-        else if (plyCount < 90) // endgame?
+        else if (totalPieces <= 8) // endgame with few pieces
+        {
+            depth = 5;
+        }
+        else if (totalPieces <= 6) // endgame with few pieces
+        {
+            depth = 6;
+        }
+        else if (plyCount < 90) // other endgame scenarios
         {
             depth = 4;
         }
